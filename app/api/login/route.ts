@@ -16,6 +16,6 @@ export async function POST(req:Request){
     try{roles=JSON.parse(row.roles)}catch{roles=[]}
     const headers=new Headers({'Content-Type':'application/json'});
     headers.append('Set-Cookie',sessionCookieHeader(token));
-    return new Response(JSON.stringify({user:{displayName:row.display_name,roles}}),{headers});
+    return new Response(JSON.stringify({user:{username,displayName:row.display_name,roles}}),{headers});
   }catch(e){return Response.json({error:'Connexion impossible.'},{status:400})}
 }

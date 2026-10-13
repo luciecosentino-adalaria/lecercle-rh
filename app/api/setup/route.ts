@@ -1,5 +1,5 @@
 import {env} from 'cloudflare:workers';
-import {hashPassword} from '../../../lib/auth';
+import {hashPassword,newSessionToken,sessionCookieHeader,sessionExpiry} from '../../../lib/auth';
 
 export async function GET(){
   try{
@@ -21,7 +21,13 @@ export async function POST(req:Request){
     if(!displayName||displayName.length>100)return Response.json({error:'Nom à afficher requis.'},{status:400});
     const hash=await hashPassword(password);
     const id=crypto.randomUUID();
-    await env.DB.prepare('INSERT INTO users (id,username,password_hash,display_name,roles,active,created_at) VALUES (?,?,?,?,?,1,?)').bind(id,username,hash,displayName,JSON.stringify(['Responsable']),new Date().toISOString()).run();
-    return Response.json({ok:true});
+    const roles=['Responsable'];
+    await env.DB.prepare('INSERT INTO users (id,username,password_hash,display_name,roles,active,created_at) VALUES (?,?,?,?,?,1,?)').bind(id,username,hash,displayName,JSON.stringify(roles),new Date().toISOString()).run();
+    const token=newSessionToken();
+    const now=new Date();
+    await env.DB.prepare('INSERT INTO sessions (token,user_id,created_at,expires_at) VALUES (?,?,?,?)').bind(token,id,now.toISOString(),sessionExpiry(now).toISOString()).run();
+    const headers=new Headers({'Content-Type':'application/json'});
+    headers.append('Set-Cookie',sessionCookieHeader(token));
+    return new Response(JSON.stringify({user:{username,displayName,roles}}),{headers});
   }catch(e){return Response.json({error:e instanceof Error&&/UNIQUE/.test(e.message)?'Cet identifiant est déjà pris.':'Création impossible.'},{status:400})}
 }
