@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {initialState,transition,normalizeState} from '../../../lib/model';
-import {currentUser,hasRole,type AuthUser} from '../../../lib/auth';
+import {currentUser,hasRole,canEditWorkshop,type AuthUser} from '../../../lib/auth';
 
 function ownerRoles(a:any,state:any):string[]|'any'{
   const t=a?.type;
@@ -23,9 +23,9 @@ function workshopIdFor(a:any):string|null{
 function authorize(user:AuthUser,a:any,state:any):string|null{
   const wid=workshopIdFor(a);
   if(wid){
-    if(hasRole(user,'Responsable'))return null;
     const w=state.workshops.find((w:any)=>w.id===wid);
-    if(w&&hasRole(user,"Responsable d'atelier")&&w.responsible===user.displayName)return null;
+    if(w&&canEditWorkshop(user,w))return null;
+    if(!w&&hasRole(user,'Responsable'))return null;
     return 'Vous ne pouvez modifier que vos propres ateliers.';
   }
   const need=ownerRoles(a,state);
@@ -50,15 +50,22 @@ export async function POST(req:Request){
     if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origine invalide.'},{status:403});
     const user=await currentUser(req);
     if(!user)return Response.json({error:'Connexion requise.'},{status:401});
-    const {revision,action}=await req.json() as {revision:number;action:unknown};
+    const {revision,action}=await req.json() as {revision:number;action:any};
     const row=await env.DB.prepare('SELECT revision,payload FROM demo_state WHERE id=1').first<{revision:number,payload:string}>();
     if(!row||revision!==row.revision)return Response.json({error:'Le planning a changé. Rechargez les données puis réessayez.'},{status:409});
     const current=normalizeState(JSON.parse(row.payload));
     const denied=authorize(user,action,current);
     if(denied)return Response.json({error:denied},{status:403});
+    let removedKey:string|null=null;
+    if(action?.type==='workshopPhotoRemove'){
+      const w=current.workshops.find((w:any)=>w.id===action.workshop);
+      const list=w?(action.which==='before'?w.photosBefore:w.photosAfter):null;
+      if(list&&Number.isInteger(action.index)&&action.index>=0&&action.index<list.length)removedKey=list[action.index];
+    }
     const state=transition(current,action);
     const result=await env.DB.prepare('UPDATE demo_state SET payload=?,revision=revision+1 WHERE id=1 AND revision=?').bind(JSON.stringify(state),revision).run();
     if(!result.meta.changes)return Response.json({error:'Modification simultanée : rechargez les données.'},{status:409});
+    if(removedKey)await env.MEDIA.delete(removedKey).catch(()=>{});
     return Response.json({state,revision:revision+1});
   }catch(e){return Response.json({error:e instanceof Error?e.message:'Enregistrement impossible.'},{status:400})}
 }

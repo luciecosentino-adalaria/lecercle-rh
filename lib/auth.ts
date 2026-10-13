@@ -57,3 +57,6 @@ export async function currentUser(req:Request):Promise<AuthUser|null>{
 export function hasRole(user:AuthUser|null,...roles:string[]):boolean{
   return !!user&&roles.some(r=>user.roles.includes(r));
 }
+export function canEditWorkshop(user:AuthUser|null,workshop:{responsible:string}):boolean{
+  return hasRole(user,'Responsable')||(hasRole(user,"Responsable d'atelier")&&!!workshop.responsible&&workshop.responsible===user?.displayName);
+}
