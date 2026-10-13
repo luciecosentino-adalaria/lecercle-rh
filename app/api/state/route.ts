@@ -11,6 +11,7 @@ function ownerRoles(a:any,state:any):string[]|'any'{
   if(t==='mission')return ['Responsable','Logistique'];
   if(t==='production')return ['Responsable'];
   if(t==='workshop')return ['Responsable',"Responsable d'atelier"];
+  if(t==='cleaningCatalogUpdate')return ['Responsable',"Responsable d'atelier"];
   return 'any';
 }
 
