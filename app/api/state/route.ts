@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {initialState,transition,normalizeState} from '../../../lib/model';
 import {currentUser,hasRole,canEditWorkshop,type AuthUser} from '../../../lib/auth';
+import {activeDisplayNames} from '../../../lib/roster';
 
 function ownerRoles(a:any,state:any):string[]|'any'{
   const t=a?.type;
@@ -12,6 +13,7 @@ function ownerRoles(a:any,state:any):string[]|'any'{
   if(t==='production')return ['Responsable'];
   if(t==='workshop')return ['Responsable',"Responsable d'atelier"];
   if(t==='cleaningCatalogUpdate')return ['Responsable',"Responsable d'atelier"];
+  if(t==='workshopUpdate'||t==='workshopDelete')return ['Responsable',"Responsable d'atelier"];
   return 'any';
 }
 
@@ -57,16 +59,20 @@ export async function POST(req:Request){
     const current=normalizeState(JSON.parse(row.payload));
     const denied=authorize(user,action,current);
     if(denied)return Response.json({error:denied},{status:403});
-    let removedKey:string|null=null;
+    let removedKeys:string[]=[];
     if(action?.type==='workshopPhotoRemove'){
       const w=current.workshops.find((w:any)=>w.id===action.workshop);
       const list=w?(action.which==='before'?w.photosBefore:w.photosAfter):null;
-      if(list&&Number.isInteger(action.index)&&action.index>=0&&action.index<list.length)removedKey=list[action.index];
+      if(list&&Number.isInteger(action.index)&&action.index>=0&&action.index<list.length)removedKeys=[list[action.index]];
+    }else if(action?.type==='workshopDelete'){
+      const w=current.workshops.find((w:any)=>w.id===action.id);
+      if(w)removedKeys=[...w.photosBefore,...w.photosAfter];
     }
-    const state=transition(current,action);
+    const roster=await activeDisplayNames();
+    const state=transition(current,action,roster);
     const result=await env.DB.prepare('UPDATE demo_state SET payload=?,revision=revision+1 WHERE id=1 AND revision=?').bind(JSON.stringify(state),revision).run();
     if(!result.meta.changes)return Response.json({error:'Modification simultanée : rechargez les données.'},{status:409});
-    if(removedKey)await env.MEDIA.delete(removedKey).catch(()=>{});
+    if(removedKeys.length)await Promise.all(removedKeys.map(k=>env.MEDIA.delete(k).catch(()=>{})));
     return Response.json({state,revision:revision+1});
   }catch(e){return Response.json({error:e instanceof Error?e.message:'Enregistrement impossible.'},{status:400})}
 }
