@@ -9,10 +9,19 @@ const EXT_BY_TYPE:Record<string,string>={
 };
 
 export async function GET(req:Request){
-  const user=await currentUser(req);
-  if(!user)return Response.json({error:'Connexion requise.'},{status:401});
-  const key=new URL(req.url).searchParams.get('key');
+  const url=new URL(req.url);
+  const key=url.searchParams.get('key');
+  const token=url.searchParams.get('token');
   if(!key)return Response.json({error:'Fichier introuvable.'},{status:400});
+  if(token){
+    const row=await env.DB.prepare('SELECT payload FROM demo_state WHERE id=1').first<{payload:string}>();
+    const state=normalizeState(row?JSON.parse(row.payload):initialState());
+    const w=state.workshops.find(w=>w.shareToken===token);
+    if(!w||!key.startsWith(`workshops/${w.id}/`))return Response.json({error:'Accès refusé.'},{status:403});
+  }else{
+    const user=await currentUser(req);
+    if(!user)return Response.json({error:'Connexion requise.'},{status:401});
+  }
   const obj=await env.MEDIA.get(key);
   if(!obj)return Response.json({error:'Fichier introuvable.'},{status:404});
   const headers=new Headers();
