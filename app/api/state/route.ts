@@ -43,7 +43,15 @@ export async function GET(req:Request){
     if(!user)return Response.json({error:'Connexion requise.'},{status:401});
     await env.DB.prepare('INSERT OR IGNORE INTO demo_state (id,revision,payload) VALUES (1,0,?)').bind(JSON.stringify(initialState())).run();
     const row=await env.DB.prepare('SELECT revision,payload FROM demo_state WHERE id=1').first<{revision:number,payload:string}>();
-    return Response.json({revision:row!.revision,state:normalizeState(JSON.parse(row!.payload))},{headers:{'Cache-Control':'no-store'}});
+    const original=row!.payload;
+    const state=normalizeState(JSON.parse(original));
+    const migrated=JSON.stringify(state);
+    let revision=row!.revision;
+    if(migrated!==original){
+      const result=await env.DB.prepare('UPDATE demo_state SET payload=?,revision=revision+1 WHERE id=1 AND revision=?').bind(migrated,revision).run();
+      if(result.meta.changes)revision=revision+1;
+    }
+    return Response.json({revision,state},{headers:{'Cache-Control':'no-store'}});
   }catch{return Response.json({error:'La sauvegarde est temporairement indisponible.'},{status:503})}
 }
 
